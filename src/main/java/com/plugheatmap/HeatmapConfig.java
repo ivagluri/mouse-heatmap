@@ -188,7 +188,7 @@ public interface HeatmapConfig extends Config
 	@ConfigItem(
 		keyName = "ignoreIdle",
 		name = "Ignore idle mouse",
-		description = "Only record while the mouse is moving, so a resting pointer doesn't build up heat",
+		description = "Only record while the mouse is moving or clicking, so a resting pointer doesn't build up heat",
 		position = 5,
 		section = advancedSection
 	)

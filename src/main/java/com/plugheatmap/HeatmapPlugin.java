@@ -2,6 +2,7 @@ package com.plugheatmap;
 
 import com.google.inject.Provides;
 import java.awt.Rectangle;
+import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.Map;
 import javax.inject.Inject;
@@ -18,6 +19,8 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.input.KeyManager;
+import net.runelite.client.input.MouseAdapter;
+import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -36,6 +39,9 @@ public class HeatmapPlugin extends Plugin
 		InterfaceID.ToplevelOsrsStretch.SIDE_PANELS,
 		InterfaceID.ToplevelPreEoc.SIDE_PANELS,
 	};
+
+	// a click counts the mouse as active for one game tick, even if it hasn't moved
+	private static final long CLICK_ACTIVE_MILLIS = 600;
 
 	@Inject
 	private Client client;
@@ -56,6 +62,9 @@ public class HeatmapPlugin extends Plugin
 	private KeyManager keyManager;
 
 	@Inject
+	private MouseManager mouseManager;
+
+	@Inject
 	private HeatmapOverlay overlay;
 
 	@Getter
@@ -73,6 +82,8 @@ public class HeatmapPlugin extends Plugin
 	private long lastSampleMillis;
 	private long lastRenderMillis;
 	private Point lastMouse;
+	// written on the AWT thread, read on the client thread
+	private volatile long lastClickMillis;
 
 	private final HotkeyListener toggleListener = new HotkeyListener(() -> config.toggleKeybind())
 	{
@@ -92,6 +103,16 @@ public class HeatmapPlugin extends Plugin
 		}
 	};
 
+	private final MouseAdapter clickListener = new MouseAdapter()
+	{
+		@Override
+		public MouseEvent mousePressed(MouseEvent event)
+		{
+			lastClickMillis = System.currentTimeMillis();
+			return event;
+		}
+	};
+
 	@Override
 	protected void startUp() throws Exception
 	{
@@ -99,6 +120,7 @@ public class HeatmapPlugin extends Plugin
 		overlayManager.add(overlay);
 		keyManager.registerKeyListener(toggleListener);
 		keyManager.registerKeyListener(resetListener);
+		mouseManager.registerMouseListener(clickListener);
 	}
 
 	@Override
@@ -107,6 +129,7 @@ public class HeatmapPlugin extends Plugin
 		overlayManager.remove(overlay);
 		keyManager.unregisterKeyListener(toggleListener);
 		keyManager.unregisterKeyListener(resetListener);
+		mouseManager.unregisterMouseListener(clickListener);
 		clientThread.invoke(this::clear);
 	}
 
@@ -133,7 +156,7 @@ public class HeatmapPlugin extends Plugin
 		if (now - lastSampleMillis >= config.sampleInterval())
 		{
 			lastSampleMillis = now;
-			sample();
+			sample(now);
 		}
 
 		long sinceRender = now - lastRenderMillis;
@@ -194,10 +217,10 @@ public class HeatmapPlugin extends Plugin
 		return null;
 	}
 
-	private void sample()
+	private void sample(long now)
 	{
 		Point mouse = client.getMouseCanvasPosition();
-		boolean idle = mouse.equals(lastMouse);
+		boolean idle = mouse.equals(lastMouse) && now - lastClickMillis > CLICK_ACTIVE_MILLIS;
 		lastMouse = mouse;
 		if (client.isMenuOpen() || (idle && config.ignoreIdle()))
 		{
