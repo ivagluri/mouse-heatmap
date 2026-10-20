@@ -237,7 +237,9 @@ public class HeatmapPlugin extends Plugin
 		{
 			map.decay(decay);
 		}
-		map.render(config.logScale(), config.smooth());
+		// a pointer resting on a cell adds about 1 heat per sample
+		float minScale = config.timeToHot() * 1000f / config.sampleInterval();
+		map.render(minScale, config.smooth());
 	}
 
 	private void updateTabHeatmap()

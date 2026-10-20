@@ -197,28 +197,32 @@ public interface HeatmapConfig extends Config
 		return 0;
 	}
 
+	@Range(max = 3600)
+	@Units(Units.SECONDS)
+	@ConfigItem(
+		keyName = "timeToHot",
+		name = "Time to hot",
+		description = "How long the mouse must spend over a spot before it shows the hot colour. Until a spot gets"
+			+ " there, the map builds up gradually; after that, colours are relative to the hottest spot."
+			+ " 0 always shows the hottest spot as hot",
+		position = 5,
+		section = advancedSection
+	)
+	default int timeToHot()
+	{
+		return 120;
+	}
+
 	@ConfigItem(
 		keyName = "ignoreIdle",
 		name = "Ignore idle mouse",
 		description = "Only record while the mouse is moving or clicking, so a resting pointer doesn't build up heat",
-		position = 5,
+		position = 6,
 		section = advancedSection
 	)
 	default boolean ignoreIdle()
 	{
 		return false;
-	}
-
-	@ConfigItem(
-		keyName = "logScale",
-		name = "Log scale",
-		description = "Scale colours logarithmically so a single hot spot doesn't wash out the rest",
-		position = 6,
-		section = advancedSection
-	)
-	default boolean logScale()
-	{
-		return true;
 	}
 
 	@ConfigItem(

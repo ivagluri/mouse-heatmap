@@ -172,8 +172,10 @@ class Heatmap
 
 	/**
 	 * Redraws the image of the mapped area if the heat or colours changed since the last call.
+	 *
+	 * @param minScale the heat shown as fully hot while nothing is hotter, so the map warms up gradually
 	 */
-	void render(boolean logScale, boolean smooth)
+	void render(float minScale, boolean smooth)
 	{
 		if (!dirty || image == null)
 		{
@@ -182,7 +184,8 @@ class Heatmap
 		dirty = false;
 
 		int[] pixels = ((DataBufferInt) cells.getRaster().getDataBuffer()).getData();
-		double scaleMax = logScale ? Math.log1p(maxHeat) : maxHeat;
+		// log scale so one spot the mouse rested on doesn't wash out everything else
+		double logMax = Math.log1p(Math.max(maxHeat, minScale));
 		for (int i = 0; i < heat.length; i++)
 		{
 			if (heat[i] <= 0)
@@ -190,8 +193,7 @@ class Heatmap
 				pixels[i] = 0;
 				continue;
 			}
-			double value = logScale ? Math.log1p(heat[i]) : heat[i];
-			int index = (int) (value / scaleMax * (palette.length - 1));
+			int index = (int) (Math.log1p(heat[i]) / logMax * (palette.length - 1));
 			pixels[i] = palette[Math.min(index, palette.length - 1)];
 		}
 
