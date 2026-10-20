@@ -36,7 +36,7 @@ import net.runelite.client.util.HotkeyListener;
 @Slf4j
 @PluginDescriptor(
 	name = "Mouse Heatmap",
-	internalName = "mouseheatmap",
+	internalName = "mouse-heatmap",
 	description = "Draws a heatmap of where your mouse spends its time over the game view",
 	tags = {"mouse", "heatmap", "overlay"}
 )
