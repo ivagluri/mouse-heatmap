@@ -56,7 +56,7 @@ public interface HeatmapConfig extends Config
 	)
 	default boolean includeInterfaces()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -125,7 +125,7 @@ public interface HeatmapConfig extends Config
 	)
 	default boolean rememberHeatmap()
 	{
-		return false;
+		return true;
 	}
 
 	@Range(min = 2, max = 50)
@@ -210,7 +210,7 @@ public interface HeatmapConfig extends Config
 	)
 	default int timeToHot()
 	{
-		return 120;
+		return 90;
 	}
 
 	@ConfigItem(
@@ -222,7 +222,7 @@ public interface HeatmapConfig extends Config
 	)
 	default boolean ignoreIdle()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
