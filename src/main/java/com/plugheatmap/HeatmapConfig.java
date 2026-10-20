@@ -15,6 +15,7 @@ public interface HeatmapConfig extends Config
 	String GROUP = "mouseheatmap";
 	String SHOW_HEATMAP = "showHeatmap";
 	String INCLUDE_INTERFACES = "includeInterfaces";
+	String REMEMBER_HEATMAP = "rememberHeatmap";
 
 	@ConfigSection(
 		name = "Advanced",
@@ -114,6 +115,17 @@ public interface HeatmapConfig extends Config
 	default int opacity()
 	{
 		return 50;
+	}
+
+	@ConfigItem(
+		keyName = REMEMBER_HEATMAP,
+		name = "Remember heatmap",
+		description = "Save the heatmap and restore it next time the client starts",
+		position = 8
+	)
+	default boolean rememberHeatmap()
+	{
+		return false;
 	}
 
 	@Range(min = 2, max = 50)

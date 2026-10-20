@@ -1,12 +1,17 @@
 package com.plugheatmap;
 
 import com.google.inject.Provides;
+import com.plugheatmap.HeatmapStorage.Saved;
 import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Point;
@@ -16,6 +21,7 @@ import net.runelite.api.gameval.VarClientID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.input.KeyManager;
@@ -24,10 +30,13 @@ import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.Filepath;
 import net.runelite.client.util.HotkeyListener;
 
+@Slf4j
 @PluginDescriptor(
 	name = "Mouse Heatmap",
+	internalName = "mouseheatmap",
 	description = "Draws a heatmap of where your mouse spends its time over the game view",
 	tags = {"mouse", "heatmap", "overlay"}
 )
@@ -42,6 +51,8 @@ public class HeatmapPlugin extends Plugin
 
 	// a click counts the mouse as active for one game tick, even if it hasn't moved
 	private static final long CLICK_ACTIVE_MILLIS = 600;
+	private static final long SAVE_INTERVAL_MILLIS = 60_000;
+	private static final String SAVE_FILE = "heatmap.dat";
 
 	@Inject
 	private Client client;
@@ -67,6 +78,9 @@ public class HeatmapPlugin extends Plugin
 	@Inject
 	private HeatmapOverlay overlay;
 
+	@Inject
+	private ScheduledExecutorService executor;
+
 	@Getter
 	private final Heatmap heatmap = new Heatmap();
 
@@ -81,6 +95,9 @@ public class HeatmapPlugin extends Plugin
 
 	private long lastSampleMillis;
 	private long lastRenderMillis;
+	private long lastSaveMillis;
+	// false until any saved heatmap has been loaded, so an empty one can't overwrite it
+	private volatile boolean loaded;
 	private Point lastMouse;
 	// written on the AWT thread, read on the client thread
 	private volatile long lastClickMillis;
@@ -121,6 +138,16 @@ public class HeatmapPlugin extends Plugin
 		keyManager.registerKeyListener(toggleListener);
 		keyManager.registerKeyListener(resetListener);
 		mouseManager.registerMouseListener(clickListener);
+
+		loaded = false;
+		if (config.rememberHeatmap())
+		{
+			executor.execute(this::load);
+		}
+		else
+		{
+			loaded = true;
+		}
 	}
 
 	@Override
@@ -130,7 +157,28 @@ public class HeatmapPlugin extends Plugin
 		keyManager.unregisterKeyListener(toggleListener);
 		keyManager.unregisterKeyListener(resetListener);
 		mouseManager.unregisterMouseListener(clickListener);
-		clientThread.invoke(this::clear);
+		clientThread.invoke(() ->
+		{
+			if (config.rememberHeatmap() && loaded)
+			{
+				Saved saved = snapshot();
+				executor.execute(() -> write(saved));
+			}
+			clear();
+		});
+	}
+
+	@Subscribe
+	public void onClientShutdown(ClientShutdown event)
+	{
+		if (!config.rememberHeatmap() || !loaded)
+		{
+			return;
+		}
+
+		CompletableFuture<Saved> saved = new CompletableFuture<>();
+		clientThread.invoke(() -> saved.complete(snapshot()));
+		event.waitFor(saved.thenAcceptAsync(this::write, executor));
 	}
 
 	@Subscribe
@@ -174,6 +222,13 @@ public class HeatmapPlugin extends Plugin
 				render(tab, decay);
 			}
 		}
+
+		if (config.rememberHeatmap() && loaded && now - lastSaveMillis >= SAVE_INTERVAL_MILLIS)
+		{
+			lastSaveMillis = now;
+			Saved saved = snapshot();
+			executor.execute(() -> write(saved));
+		}
 	}
 
 	private void render(Heatmap map, float decay)
@@ -195,13 +250,15 @@ public class HeatmapPlugin extends Plugin
 		}
 
 		int tab = client.getVarcIntValue(VarClientID.TOPLEVEL_PANEL);
-		tabHeatmap = tabHeatmaps.computeIfAbsent(tab, t ->
-		{
-			Heatmap map = new Heatmap();
-			setColors(map);
-			return map;
-		});
+		tabHeatmap = tabHeatmaps.computeIfAbsent(tab, t -> newHeatmap());
 		tabHeatmap.resize(panel.x, panel.y, panel.width, panel.height, config.cellSize());
+	}
+
+	private Heatmap newHeatmap()
+	{
+		Heatmap map = new Heatmap();
+		setColors(map);
+		return map;
 	}
 
 	private Rectangle findSidePanel()
@@ -248,6 +305,69 @@ public class HeatmapPlugin extends Plugin
 		return true;
 	}
 
+	/**
+	 * Copies every heatmap for saving. Must run on the client thread.
+	 */
+	private Saved snapshot()
+	{
+		Map<Integer, Heatmap.Snapshot> tabs = new HashMap<>();
+		tabHeatmaps.forEach((tab, map) -> tabs.put(tab, map.snapshot()));
+		return new Saved(heatmap.snapshot(), tabs);
+	}
+
+	private void restore(Saved saved)
+	{
+		heatmap.restore(saved.getHeatmap());
+		tabHeatmaps.clear();
+		saved.getTabHeatmaps().forEach((tab, snapshot) ->
+		{
+			Heatmap map = newHeatmap();
+			map.restore(snapshot);
+			tabHeatmaps.put(tab, map);
+		});
+		tabHeatmap = null;
+	}
+
+	private Filepath saveFile() throws IOException
+	{
+		return getPluginDirectory().joinSegment(SAVE_FILE);
+	}
+
+	private void load()
+	{
+		try
+		{
+			Filepath file = saveFile();
+			if (file.exists())
+			{
+				Saved saved = HeatmapStorage.read(file);
+				clientThread.invoke(() ->
+				{
+					restore(saved);
+					loaded = true;
+				});
+				return;
+			}
+		}
+		catch (IOException e)
+		{
+			log.warn("Failed to load saved heatmap", e);
+		}
+		loaded = true;
+	}
+
+	private void write(Saved saved)
+	{
+		try
+		{
+			HeatmapStorage.write(saveFile(), saved);
+		}
+		catch (IOException e)
+		{
+			log.warn("Failed to save heatmap", e);
+		}
+	}
+
 	private void clear()
 	{
 		heatmap.clear();
@@ -261,6 +381,12 @@ public class HeatmapPlugin extends Plugin
 		if (!HeatmapConfig.GROUP.equals(event.getGroup()))
 		{
 			return;
+		}
+
+		if (HeatmapConfig.REMEMBER_HEATMAP.equals(event.getKey()) && config.rememberHeatmap())
+		{
+			// keep the current session's heatmap and save it from now on
+			loaded = true;
 		}
 
 		if (HeatmapConfig.INCLUDE_INTERFACES.equals(event.getKey()))

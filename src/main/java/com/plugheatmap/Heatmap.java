@@ -7,6 +7,7 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import lombok.Getter;
+import lombok.Value;
 
 /**
  * Grid of heat values covering an area of the canvas, plus a rendered image of it.
@@ -121,6 +122,31 @@ class Heatmap
 		dirty = true;
 	}
 
+	/**
+	 * Copies the heat grid, for saving.
+	 */
+	Snapshot snapshot()
+	{
+		return new Snapshot(cellSize, cols, rows, heat.clone());
+	}
+
+	/**
+	 * Replaces the heat grid with a saved one. It's fitted to the mapped area on the next {@link #resize}, which
+	 * discards it if the cell size has changed since it was saved.
+	 */
+	void restore(Snapshot snapshot)
+	{
+		cellSize = snapshot.getCellSize();
+		cols = snapshot.getCols();
+		rows = snapshot.getRows();
+		heat = snapshot.getHeat();
+		// force the next resize to refit the grid, and draw nothing until then
+		width = -1;
+		height = -1;
+		cells = null;
+		image = null;
+	}
+
 	void clear()
 	{
 		heat = new float[cols * rows];
@@ -189,5 +215,14 @@ class Heatmap
 			Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
 			Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
 			Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
+	}
+
+	@Value
+	static class Snapshot
+	{
+		int cellSize;
+		int cols;
+		int rows;
+		float[] heat;
 	}
 }
