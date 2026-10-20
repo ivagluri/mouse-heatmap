@@ -32,6 +32,8 @@ class HeatmapStorage
 
 	static void write(Filepath file, Saved saved) throws IOException
 	{
+		// the plugin directory isn't created for us
+		file.getParent().createDirectories();
 		Filepath temp = file.getParent().createTempFile("heatmap", ".tmp");
 		try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(temp.openOutputStream()))))
 		{

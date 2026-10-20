@@ -36,6 +36,20 @@ public class HeatmapStorageTest
 	}
 
 	@Test
+	public void writeCreatesMissingDirectory() throws IOException
+	{
+		Heatmap heatmap = new Heatmap();
+		heatmap.resize(0, 0, 10, 10, 5);
+
+		Filepath file = Filepath.Unchecked.getRooted(folder.getRoot().toPath())
+			.joinSegment("mouseheatmap")
+			.joinSegment("heatmap.dat");
+		HeatmapStorage.write(file, new HeatmapStorage.Saved(heatmap.snapshot(), Map.of()));
+
+		assertSnapshotEquals(heatmap.snapshot(), HeatmapStorage.read(file).getHeatmap());
+	}
+
+	@Test
 	public void restoreKeepsHeatWhenRefitted()
 	{
 		Heatmap heatmap = new Heatmap();
